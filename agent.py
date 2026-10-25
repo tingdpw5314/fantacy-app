@@ -13,10 +13,9 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import requests
-from cryptography.fernet import Fernet
 
 ROOT = Path(__file__).resolve().parent
-TOKEN_FILE = ROOT / "token_state.enc"
+TOKEN_FILE = ROOT / "token_state.json"
 API = "https://fantasysports.yahooapis.com/fantasy/v2"
 AUTH = "https://api.login.yahoo.com/oauth2/request_auth"
 TOKEN = "https://api.login.yahoo.com/oauth2/get_token"
@@ -38,21 +37,21 @@ def required(name):
     return val
 
 
-def cipher():
-    return Fernet(required("YAHOO_TOKEN_KEY").encode("ascii"))
-
-
 def save_token(token):
-    encrypted = cipher().encrypt(json.dumps(token).encode("utf8"))
+    # SECURITY: Plaintext OAuth tokens. Use only in a tightly controlled private repository.
     tmp = TOKEN_FILE.with_suffix(".tmp")
-    tmp.write_bytes(encrypted)
+    tmp.write_text(json.dumps(token, indent=2), encoding="utf8")
+    try:
+        os.chmod(tmp, 0o600)
+    except OSError:
+        pass
     os.replace(tmp, TOKEN_FILE)
 
 
 def read_token():
     if not TOKEN_FILE.exists():
-        raise SystemExit("Missing token_state.enc. Run: python agent.py login")
-    return json.loads(cipher().decrypt(TOKEN_FILE.read_bytes()))
+        raise SystemExit("Missing token_state.json. Run: python agent.py login locally first.")
+    return json.loads(TOKEN_FILE.read_text(encoding="utf8"))
 
 
 def credentials():
@@ -107,7 +106,7 @@ def login():
     token = exchange({"grant_type": "authorization_code", "code": result["code"], "redirect_uri": redirect_uri})
     token["obtained_at"] = int(time.time())
     save_token(token)
-    print("Success: encrypted token_state.enc saved. Do not upload your .env.")
+    print("Success: token_state.json saved (PLAINTEXT SENSITIVE). Never upload .env or use a public repo.")
 
 
 def access_token():
@@ -194,11 +193,9 @@ def collect():
 def main():
     load_env()
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=["keygen", "login", "collect"])
+    parser.add_argument("command", choices=["login", "collect"])
     args = parser.parse_args()
-    if args.command == "keygen":
-        print(Fernet.generate_key().decode())
-    elif args.command == "login":
+    if args.command == "login":
         login()
     else:
         collect()
